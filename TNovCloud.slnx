@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TNovCloud.Api/TNovCloud.Api.csproj" />
+    <Project Path="src/TNovCloud.Client/TNovCloud.Client.csproj" />
+    <Project Path="src/TNovCloud.Shared/TNovCloud.Shared.csproj" />
+  </Folder>
+</Solution>

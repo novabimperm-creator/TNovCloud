@@ -1,0 +1,21 @@
+<Window x:Class="TNovCloud.Client.ApproveWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Согласование" Height="420" Width="520"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BgBrush}">
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="Отмена" Click="OnCancel" Width="100"/>
+            <Button Content="Запустить" Click="OnOk" Width="120"/>
+        </StackPanel>
+        <StackPanel>
+            <Label Content="Название процесса"/>
+            <TextBox x:Name="TitleBox" Text="Согласование"/>
+            <Label Content="Согласующие (сверху вниз — последовательность)"/>
+            <ListBox x:Name="UserList" Height="180" DisplayMemberPath="DisplayName" SelectionMode="Multiple"/>
+            <Label Content="Срок (необязательно, ГГГГ-ММ-ДД)"/>
+            <TextBox x:Name="DueBox"/>
+        </StackPanel>
+    </DockPanel>
+</Window>

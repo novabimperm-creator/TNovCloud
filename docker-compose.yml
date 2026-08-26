@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tnovcloud
+      POSTGRES_PASSWORD: tnovcloud
+      POSTGRES_DB: tnovcloud
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tnovcloud"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: src/TNovCloud.Api/Dockerfile
+    environment:
+      ConnectionStrings__Postgres: Host=db;Port=5432;Database=tnovcloud;Username=tnovcloud;Password=tnovcloud
+      Jwt__Key: change-this-to-a-long-random-secret-key!
+      Storage__Root: /data
+    volumes:
+      - files:/data
+    ports:
+      - "5080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  files:

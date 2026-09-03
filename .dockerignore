@@ -4,3 +4,6 @@
 data/
 *.user
 .vs/
+artifacts/
+packaging/TNovCloud.Package/artifacts/
+tests/

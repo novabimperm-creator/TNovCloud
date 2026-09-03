@@ -1,0 +1,44 @@
+# Copy to ssl.conf and mount TLS files to /etc/nginx/certs, then uncomment
+# `include /etc/nginx/ssl.conf;` in nginx.conf.
+#
+# docker compose volumes for the proxy service:
+#   - ./deploy/nginx/certs/fullchain.pem:/etc/nginx/certs/fullchain.pem:ro
+#   - ./deploy/nginx/certs/privkey.pem:/etc/nginx/certs/privkey.pem:ro
+#   - ./deploy/nginx/ssl.conf:/etc/nginx/ssl.conf:ro
+#
+# Publish 443 on the proxy service only:
+#   ports:
+#     - "80:80"
+#     - "443:443"
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name _;
+
+    ssl_certificate     /etc/nginx/certs/fullchain.pem;
+    ssl_certificate_key /etc/nginx/certs/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    location /health {
+        proxy_pass http://tnovcloud_api/health;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Connection "";
+    }
+
+    location / {
+        proxy_pass http://tnovcloud_api;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
+        proxy_request_buffering off;
+    }
+}

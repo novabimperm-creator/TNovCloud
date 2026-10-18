@@ -7,7 +7,9 @@ public sealed class StorageService(IConfiguration config)
 
     public async Task<(string Key, long Size)> SaveAsync(Guid fileId, int version, Stream content, CancellationToken ct)
     {
-        var key = $"{fileId:N}/{version}";
+        // A unique immutable key prevents concurrent check-ins for the same
+        // logical version from overwriting the content that wins the DB race.
+        var key = $"{fileId:N}/{version}-{Guid.NewGuid():N}";
         var path = Physical(key);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         await using var fs = File.Create(path);

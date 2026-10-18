@@ -2,6 +2,11 @@
   <Folder Name="/src/">
     <Project Path="src/TNovCloud.Api/TNovCloud.Api.csproj" />
     <Project Path="src/TNovCloud.Client/TNovCloud.Client.csproj" />
+    <Project Path="src/TNovCloud.FileSystemHost/TNovCloud.FileSystemHost.csproj" />
     <Project Path="src/TNovCloud.Shared/TNovCloud.Shared.csproj" />
+    <Project Path="src/TNovCloud.ShellExtension/TNovCloud.ShellExtension.vcxproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TNovCloud.Tests/TNovCloud.Tests.csproj" />
   </Folder>
 </Solution>

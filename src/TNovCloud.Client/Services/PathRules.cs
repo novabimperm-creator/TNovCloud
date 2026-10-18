@@ -26,12 +26,21 @@ public static class PathRules
 
     public static string RelativeFromDrive(string fullPath, char letter)
     {
-        var root = Path.GetFullPath($"{letter}:\\");
         var full = Path.GetFullPath(fullPath);
-        if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Файл не на диске TNovCloud.");
-        return full[root.Length..].Replace('\\', '/');
+        foreach (var root in new[]
+                 {
+                     WithSlash(Path.GetFullPath($"{letter}:\\")),
+                     WithSlash(Path.GetFullPath(SessionStore.DrivePath))
+                 })
+        {
+            if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                return full[root.Length..].Replace('\\', '/');
+        }
+
+        throw new InvalidOperationException("Файл не на диске TNovCloud.");
     }
+
+    private static string WithSlash(string path) => path.TrimEnd('\\') + "\\";
 
     public static string LocalPath(string relative)
         => Path.Combine(SessionStore.DrivePath, relative.Replace('/', Path.DirectorySeparatorChar));

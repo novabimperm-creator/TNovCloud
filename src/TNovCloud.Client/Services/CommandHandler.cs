@@ -32,7 +32,7 @@ internal static class CommandHandler
             {
                 case "--checkout":
                     await App.Api.CheckoutAsync(path);
-                    PathRules.SetWritable(target, true);
+                    await Task.Run(() => DriveMounter.Sync(App.DriveLetter));
                     MessageBox.Show($"Файл взят на редактирование:\n{path}", "TNovCloud");
                     break;
                 case "--checkin":
@@ -40,7 +40,7 @@ internal static class CommandHandler
                     break;
                 case "--cancel":
                     await App.Api.CancelAsync(path);
-                    await new SyncService(App.Api).SyncAsync(App.Session.User.Id);
+                    await Task.Run(() => DriveMounter.Discard(path));
                     MessageBox.Show("Изменения отменены, файл возвращён к серверной версии.", "TNovCloud");
                     break;
                 case "--approve":
@@ -62,12 +62,22 @@ internal static class CommandHandler
         var dialog = new CheckinWindow();
         if (dialog.ShowDialog() != true)
             return;
-        PathRules.SetWritable(localFile, true);
-        await App.Api.CheckinAsync(path, localFile, dialog.Comment, dialog.KeepCheckout);
+        var before = await App.Api.DetailsAsync(path);
+        var expectedVersion = before.File.Version
+                              ?? throw new InvalidOperationException("У файла отсутствует номер версии.");
+        await App.Api.CheckinAsync(
+            path,
+            localFile,
+            dialog.Comment,
+            dialog.KeepCheckout,
+            expectedVersion);
         var details = await App.Api.DetailsAsync(path);
         if (details.File.Version is { } version)
-            SyncService.RememberVersion(path, version);
-        PathRules.SetWritable(localFile, dialog.KeepCheckout);
+            await Task.Run(() => DriveMounter.MarkCommitted(
+                path,
+                version,
+                details.File.Revision,
+                dialog.KeepCheckout));
         MessageBox.Show($"Сохранена версия {details.File.Version}.", "TNovCloud");
     }
 

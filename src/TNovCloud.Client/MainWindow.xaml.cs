@@ -1,4 +1,5 @@
 ﻿using System.Windows;
+using Microsoft.Win32;
 using TNovCloud.Client.Services;
 using TNovCloud.Shared;
 
@@ -29,6 +30,10 @@ public partial class MainWindow : Window
             App.Session.User = result.User;
             App.Api.Configure(App.Session.ServerUrl, result.Token);
             SessionStore.Save(App.Session);
+            App.DriveLetter = await Task.Run(
+                () => DriveMounter.Mount(App.Session.DriveLetter, SessionStore.DrivePath));
+            App.Session.DriveLetter = App.DriveLetter.ToString();
+            SessionStore.Save(App.Session);
             ShowWork();
             await SyncAndInbox();
         }
@@ -52,8 +57,9 @@ public partial class MainWindow : Window
     {
         if (App.Session.User is null)
             return;
-        var progress = new Progress<string>(x => StatusText.Text = x);
-        await new SyncService(App.Api).SyncAsync(App.Session.User.Id, progress);
+        StatusText.Text = "Обновление метаданных…";
+        await Task.Run(() => DriveMounter.Sync(App.DriveLetter));
+        StatusText.Text = "Подключено";
         await RefreshInbox();
     }
 
@@ -75,6 +81,8 @@ public partial class MainWindow : Window
     {
         App.Session.Token = null;
         App.Session.User = null;
+        App.Api.Configure(App.Session.ServerUrl, null);
+        DriveMounter.Unmount(App.DriveLetter);
         SessionStore.Save(App.Session);
         LoginPanel.Visibility = Visibility.Visible;
         WorkPanel.Visibility = Visibility.Collapsed;
@@ -111,6 +119,48 @@ public partial class MainWindow : Window
         {
             await App.Api.DecideAsync(task.Id, action, null);
             await SyncAndInbox();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "TNovCloud", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private string? _selectedFile;
+
+    private void OnPickFile(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Файл на диске TNovCloud",
+            InitialDirectory = $"{App.DriveLetter}:\\",
+            CheckFileExists = true
+        };
+        if (dialog.ShowDialog() == true)
+        {
+            _selectedFile = dialog.FileName;
+            SelectedFileText.Text = _selectedFile;
+        }
+    }
+
+    private async void OnCheckout(object sender, RoutedEventArgs e) => await RunFileCommand("--checkout");
+    private async void OnCheckin(object sender, RoutedEventArgs e) => await RunFileCommand("--checkin");
+    private async void OnCancelCheckout(object sender, RoutedEventArgs e) => await RunFileCommand("--cancel");
+    private async void OnApproveFile(object sender, RoutedEventArgs e) => await RunFileCommand("--approve");
+    private async void OnProperties(object sender, RoutedEventArgs e) => await RunFileCommand("--properties");
+
+    private async Task RunFileCommand(string command)
+    {
+        if (string.IsNullOrEmpty(_selectedFile))
+        {
+            MessageBox.Show("Сначала выберите файл на диске TNovCloud.", "TNovCloud");
+            return;
+        }
+
+        try
+        {
+            await CommandHandler.RunAsync([command, _selectedFile]);
+            await RefreshInbox();
         }
         catch (Exception ex)
         {

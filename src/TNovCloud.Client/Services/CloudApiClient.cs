@@ -19,13 +19,13 @@ public sealed class CloudApiClient : IDisposable
     };
 
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(10) };
+    private Uri _baseUri = new("http://localhost:5080/");
+    private string? _token;
 
     public void Configure(string baseUrl, string? token)
     {
-        _http.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
-        _http.DefaultRequestHeaders.Authorization = string.IsNullOrEmpty(token)
-            ? null
-            : new AuthenticationHeaderValue("Bearer", token);
+        _baseUri = new Uri(baseUrl.TrimEnd('/') + "/");
+        _token = string.IsNullOrWhiteSpace(token) ? null : token;
     }
 
     public Task<LoginResponse> LoginAsync(string login, string password, CancellationToken ct = default)
@@ -38,16 +38,16 @@ public sealed class CloudApiClient : IDisposable
         => await Get<List<FsEntryDto>>("api/fs/tree", ct);
 
     public Task MkdirAsync(string path, CancellationToken ct = default)
-        => SendAsync(new HttpRequestMessage(HttpMethod.Post, $"api/fs/mkdir?path={Q(path)}"), ct);
+        => SendAsync(HttpMethod.Post, $"api/fs/mkdir?path={Q(path)}", ct);
 
     public Task CheckoutAsync(string path, CancellationToken ct = default)
-        => SendAsync(new HttpRequestMessage(HttpMethod.Post, $"api/fs/checkout?path={Q(path)}"), ct);
+        => SendAsync(HttpMethod.Post, $"api/fs/checkout?path={Q(path)}", ct);
 
     public Task CancelAsync(string path, CancellationToken ct = default)
-        => SendAsync(new HttpRequestMessage(HttpMethod.Post, $"api/fs/cancel?path={Q(path)}"), ct);
+        => SendAsync(HttpMethod.Post, $"api/fs/cancel?path={Q(path)}", ct);
 
     public Task RestoreAsync(string path, int version, CancellationToken ct = default)
-        => SendAsync(new HttpRequestMessage(HttpMethod.Post, $"api/fs/restore?path={Q(path)}&version={version}"), ct);
+        => SendAsync(HttpMethod.Post, $"api/fs/restore?path={Q(path)}&version={version}", ct);
 
     public Task<FileDetailsDto> DetailsAsync(string path, CancellationToken ct = default)
         => Get<FileDetailsDto>($"api/fs/details?path={Q(path)}", ct);
@@ -55,7 +55,8 @@ public sealed class CloudApiClient : IDisposable
     public async Task DownloadAsync(string path, string localFile, int? version = null, CancellationToken ct = default)
     {
         var url = $"api/fs/content?path={Q(path)}" + (version is { } v ? $"&version={v}" : "");
-        using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+        using var request = Create(HttpMethod.Get, url);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         await EnsureSuccess(response, ct);
         Directory.CreateDirectory(Path.GetDirectoryName(localFile)!);
         await using var fs = File.Create(localFile);
@@ -63,10 +64,21 @@ public sealed class CloudApiClient : IDisposable
     }
 
     public Task UploadAsync(string path, string localFile, string? comment, CancellationToken ct = default)
-        => UploadAsync("api/fs/upload", path, localFile, comment, keepCheckout: false, ct);
+        => UploadAsync("api/fs/upload", path, localFile, comment, ct);
 
-    public Task CheckinAsync(string path, string localFile, string? comment, bool keepCheckout, CancellationToken ct = default)
-        => UploadAsync($"api/fs/checkin?keepCheckout={keepCheckout.ToString().ToLowerInvariant()}", path, localFile, comment, keepCheckout, ct);
+    public Task CheckinAsync(
+        string path,
+        string localFile,
+        string? comment,
+        bool keepCheckout,
+        int expectedVersion,
+        CancellationToken ct = default)
+        => UploadAsync(
+            $"api/fs/checkin?keepCheckout={keepCheckout.ToString().ToLowerInvariant()}&expectedVersion={expectedVersion}",
+            path,
+            localFile,
+            comment,
+            ct);
 
     public Task<ProcessDto> StartProcessAsync(CreateProcessRequest request, CancellationToken ct = default)
         => PostJson<CreateProcessRequest, ProcessDto>("api/processes", request, ct);
@@ -77,7 +89,7 @@ public sealed class CloudApiClient : IDisposable
     public Task<ProcessDto> DecideAsync(Guid taskId, string action, string? comment, CancellationToken ct = default)
         => PostJson<DecideRequest, ProcessDto>($"api/tasks/{taskId}/decide", new DecideRequest(action, comment), ct);
 
-    private async Task UploadAsync(string url, string path, string localFile, string? comment, bool keepCheckout, CancellationToken ct)
+    private async Task UploadAsync(string url, string path, string localFile, string? comment, CancellationToken ct)
     {
         using var form = new MultipartFormDataContent();
         await using var fs = new FileStream(localFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -85,28 +97,42 @@ public sealed class CloudApiClient : IDisposable
         if (!string.IsNullOrEmpty(comment))
             form.Add(new StringContent(comment), "comment");
         var separator = url.Contains('?') ? "&" : "?";
-        using var response = await _http.PostAsync($"{url}{separator}path={Q(path)}", form, ct);
+        using var request = Create(HttpMethod.Post, $"{url}{separator}path={Q(path)}");
+        request.Content = form;
+        using var response = await _http.SendAsync(request, ct);
         await EnsureSuccess(response, ct);
     }
 
     private async Task<T> Get<T>(string url, CancellationToken ct)
     {
-        using var response = await _http.GetAsync(url, ct);
+        using var request = Create(HttpMethod.Get, url);
+        using var response = await _http.SendAsync(request, ct);
         await EnsureSuccess(response, ct);
         return await response.Content.ReadFromJsonAsync<T>(Json, ct) ?? throw new ApiException("Пустой ответ сервера.");
     }
 
     private async Task<TOut> PostJson<TIn, TOut>(string url, TIn body, CancellationToken ct)
     {
-        using var response = await _http.PostAsJsonAsync(url, body, Json, ct);
+        using var request = Create(HttpMethod.Post, url);
+        request.Content = JsonContent.Create(body, options: Json);
+        using var response = await _http.SendAsync(request, ct);
         await EnsureSuccess(response, ct);
         return await response.Content.ReadFromJsonAsync<TOut>(Json, ct) ?? throw new ApiException("Пустой ответ сервера.");
     }
 
-    private async Task SendAsync(HttpRequestMessage request, CancellationToken ct)
+    private async Task SendAsync(HttpMethod method, string url, CancellationToken ct)
     {
+        using var request = Create(method, url);
         using var response = await _http.SendAsync(request, ct);
         await EnsureSuccess(response, ct);
+    }
+
+    private HttpRequestMessage Create(HttpMethod method, string relative)
+    {
+        var request = new HttpRequestMessage(method, new Uri(_baseUri, relative));
+        if (!string.IsNullOrEmpty(_token))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
+        return request;
     }
 
     private static async Task EnsureSuccess(HttpResponseMessage response, CancellationToken ct)

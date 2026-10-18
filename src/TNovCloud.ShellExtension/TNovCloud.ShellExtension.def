@@ -1,0 +1,5 @@
+LIBRARY "TNovCloud.ShellExtension.dll"
+
+EXPORTS
+    DllCanUnloadNow PRIVATE
+    DllGetClassObject PRIVATE

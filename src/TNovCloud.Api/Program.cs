@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using TNovCloud.Api.Data;
@@ -44,8 +45,15 @@ builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
     o.MultipartBodyLengthLimit = 1024L * 1024 * 1024;
 });
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 1024L * 1024 * 1024);
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 var app = builder.Build();
+app.UseForwardedHeaders();
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -105,12 +113,12 @@ api.MapPost("/fs/checkout", async (string path, ClaimsPrincipal user, CloudServi
     });
 });
 
-api.MapPost("/fs/checkin", async (string path, string? comment, bool keepCheckout, IFormFile file, ClaimsPrincipal user, CloudService cloud, CancellationToken ct) =>
+api.MapPost("/fs/checkin", async (string path, string? comment, bool keepCheckout, int expectedVersion, IFormFile file, ClaimsPrincipal user, CloudService cloud, CancellationToken ct) =>
 {
     return await Guard(async () =>
     {
         await using var stream = file.OpenReadStream();
-        await cloud.CheckinAsync(path, stream, comment, UserId(user), keepCheckout, ct);
+        await cloud.CheckinAsync(path, stream, comment, UserId(user), keepCheckout, expectedVersion, ct);
         return Results.Ok();
     });
 }).DisableAntiforgery();
@@ -127,6 +135,72 @@ api.MapPost("/fs/cancel", async (string path, ClaimsPrincipal user, CloudService
 api.MapGet("/fs/details", async (string path, CloudService cloud, CancellationToken ct) =>
 {
     return await Guard(async () => Results.Ok(await cloud.GetDetailsAsync(path, ct)));
+});
+
+api.MapGet("/fs/children", async (
+    string? path,
+    bool includeDeleted,
+    string? cursor,
+    int? pageSize,
+    HttpContext http,
+    CloudService cloud,
+    CancellationToken ct) =>
+{
+    return await Guard(async () =>
+    {
+        var result = await cloud.GetChildrenAsync(
+            path ?? "",
+            includeDeleted,
+            cursor,
+            pageSize ?? 200,
+            ct);
+        http.Response.Headers.ETag = $"\"{result.Directory.Revision}\"";
+        return Results.Ok(result);
+    });
+});
+
+api.MapGet("/fs/metadata", async (
+    string? path,
+    bool includeDeleted,
+    HttpContext http,
+    CloudService cloud,
+    CancellationToken ct) =>
+{
+    return await Guard(async () =>
+    {
+        var result = await cloud.GetMetadataAsync(path ?? "", includeDeleted, ct);
+        http.Response.Headers.ETag = $"\"{result.Revision}\"";
+        return Results.Ok(result);
+    });
+});
+
+api.MapPost("/fs/rename", async (RenameEntryRequest body, ClaimsPrincipal user, CloudService cloud, CancellationToken ct) =>
+{
+    return await Guard(async () => Results.Ok(await cloud.RenameAsync(body, UserId(user), ct)));
+});
+
+api.MapPost("/fs/move", async (MoveEntryRequest body, ClaimsPrincipal user, CloudService cloud, CancellationToken ct) =>
+{
+    return await Guard(async () => Results.Ok(await cloud.MoveAsync(body, UserId(user), ct)));
+});
+
+api.MapPost("/fs/delete", async (DeleteEntryRequest body, ClaimsPrincipal user, CloudService cloud, CancellationToken ct) =>
+{
+    return await Guard(async () =>
+    {
+        await cloud.SoftDeleteAsync(body, UserId(user), ct);
+        return Results.Ok();
+    });
+});
+
+api.MapPost("/fs/restore-deleted", async (RestoreDeletedEntryRequest body, ClaimsPrincipal user, CloudService cloud, CancellationToken ct) =>
+{
+    return await Guard(async () => Results.Ok(await cloud.RestoreDeletedAsync(body, UserId(user), ct)));
+});
+
+api.MapGet("/fs/audit", async (string? path, int? limit, CloudService cloud, CancellationToken ct) =>
+{
+    return await Guard(async () => Results.Ok(await cloud.GetAuditAsync(path, limit ?? 100, ct)));
 });
 
 api.MapGet("/fs/content", async (string path, int? version, CloudService cloud, CancellationToken ct) =>
@@ -193,7 +267,8 @@ internal static class Seed
     {
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CloudDbContext>();
-        await db.Database.EnsureCreatedAsync();
+        await BootstrapLegacyMigrationAsync(db);
+        await db.Database.MigrateAsync();
 
         if (!await db.Users.AnyAsync())
         {
@@ -206,7 +281,8 @@ internal static class Seed
                 Id = Guid.NewGuid(),
                 Name = "",
                 CreatedById = admin.Id,
-                CreatedAt = DateTimeOffset.UtcNow
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
             };
             var projects = new Folder
             {
@@ -214,7 +290,8 @@ internal static class Seed
                 ParentId = root.Id,
                 Name = "Проекты",
                 CreatedById = admin.Id,
-                CreatedAt = DateTimeOffset.UtcNow
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
             };
             var demo = new Folder
             {
@@ -222,11 +299,35 @@ internal static class Seed
                 ParentId = projects.Id,
                 Name = "Демо",
                 CreatedById = admin.Id,
-                CreatedAt = DateTimeOffset.UtcNow
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
             };
             db.Folders.AddRange(root, projects, demo);
             await db.SaveChangesAsync();
         }
+    }
+
+    private static async Task BootstrapLegacyMigrationAsync(CloudDbContext db)
+    {
+        if (!await db.Database.CanConnectAsync())
+            return;
+
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS "__EFMigrationsHistory" (
+                "MigrationId" character varying(150) NOT NULL,
+                "ProductVersion" character varying(32) NOT NULL,
+                CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY ("MigrationId")
+            );
+
+            INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+            SELECT '20260902091003_InitialLegacySchema', '10.0.0'
+            WHERE to_regclass('"Users"') IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM "__EFMigrationsHistory"
+                  WHERE "MigrationId" = '20260902091003_InitialLegacySchema'
+              );
+            """);
     }
 
     private static User NewUser(string login, string name, string password) => new()

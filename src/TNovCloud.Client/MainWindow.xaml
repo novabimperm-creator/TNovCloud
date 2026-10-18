@@ -1,7 +1,7 @@
 ﻿<Window x:Class="TNovCloud.Client.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="TNovCloud" Height="560" Width="720"
+        Title="TNovCloud" Height="680" Width="760"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource BgBrush}"
         Closing="OnClosing">
@@ -30,13 +30,28 @@
             <DockPanel x:Name="WorkPanel" Visibility="Collapsed">
                 <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
                     <TextBlock x:Name="UserText" FontSize="16" FontWeight="SemiBold"/>
-                    <TextBlock x:Name="DriveText" Margin="0,4,0,12"/>
+                    <TextBlock x:Name="DriveText" Margin="0,4,0,8"/>
                     <WrapPanel>
                         <Button Content="Открыть диск" Click="OnOpenDrive"/>
                         <Button Content="Синхронизировать" Click="OnSync"/>
                         <Button Content="Выйти" Click="OnLogout"/>
                     </WrapPanel>
+                    <TextBlock Margin="0,10,0,0" TextWrapping="Wrap" Foreground="#444"
+                               Text="Меню Проводника (Windows 11): ПКМ по файлу на диске TNovCloud → «Показать дополнительные параметры» (или Shift+ПКМ) → пункты «TNovCloud — …». Если их нет — перезапустите клиент и проверьте букву диска в строке выше."/>
                 </StackPanel>
+                <GroupBox Header="Файл на диске" DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <StackPanel>
+                        <TextBlock x:Name="SelectedFileText" Text="Файл не выбран" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                        <WrapPanel>
+                            <Button Content="Выбрать файл…" Click="OnPickFile"/>
+                            <Button Content="Взять на редактирование" Click="OnCheckout"/>
+                            <Button Content="Сохранить изменения" Click="OnCheckin"/>
+                            <Button Content="Отменить изменения" Click="OnCancelCheckout"/>
+                            <Button Content="На согласование" Click="OnApproveFile"/>
+                            <Button Content="Свойства и версии" Click="OnProperties"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </GroupBox>
                 <GroupBox Header="Задачи согласования">
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">

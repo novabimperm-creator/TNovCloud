@@ -19,6 +19,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/novabimperm-creator/TNovCloud</RepositoryUrl>
   </PropertyGroup>
 
 </Project>

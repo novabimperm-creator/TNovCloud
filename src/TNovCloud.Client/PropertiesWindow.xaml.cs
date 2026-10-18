@@ -46,7 +46,7 @@ public partial class PropertiesWindow : Window
         {
             await App.Api.RestoreAsync(_path, version.Version);
             if (App.Session.User is not null)
-                await new SyncService(App.Api).SyncAsync(App.Session.User.Id);
+                await Task.Run(() => DriveMounter.Discard(_path));
             await LoadAsync();
             MessageBox.Show($"Восстановлено из версии {version.Version}. Создана новая major-версия.", "TNovCloud");
         }
